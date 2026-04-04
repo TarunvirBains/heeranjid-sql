@@ -45,10 +45,10 @@ BEGIN
     IF @epoch_us IS NULL
         THROW 50204, 'heer_config row id=1 must exist before generating IDs', 1;
 
-    -- current_tick = (now - epoch) + ranj_epoch_offset
-    DECLARE @now_us NUMERIC(38,0) = CAST(DATEDIFF_BIG(MICROSECOND, '1970-01-01T00:00:00', SYSUTCDATETIME()) AS NUMERIC(38,0))
-                                    - @epoch_us
-                                    + @epoch_offset;
+    -- Temp table for results (created outside transaction)
+    CREATE TABLE #ranj_ids (id BINARY(16));
+
+    BEGIN TRANSACTION;
 
     -- Ensure state row exists
     IF NOT EXISTS (SELECT 1 FROM heer_ranj_node_state WHERE node_id = @in_node_id)
@@ -63,6 +63,12 @@ BEGIN
     FROM heer_ranj_node_state WITH (UPDLOCK, ROWLOCK, HOLDLOCK)
     WHERE node_id = @in_node_id;
 
+    -- Calculate current time AFTER acquiring the lock to avoid false clock rollback
+    -- under concurrency (another thread may have advanced last_id_time while we waited)
+    DECLARE @now_us NUMERIC(38,0) = CAST(DATEDIFF_BIG(MICROSECOND, '1970-01-01T00:00:00', SYSUTCDATETIME()) AS NUMERIC(38,0))
+                                    - @epoch_us
+                                    + @epoch_offset;
+
     -- Clock rollback detection (50000 microsecond threshold)
     DECLARE @rollback_us NUMERIC(38,0) = @last_time - @now_us;
     IF @rollback_us > 0
@@ -70,11 +76,13 @@ BEGIN
         IF @rollback_us < 50000
         BEGIN
             DECLARE @soft_msg NVARCHAR(200) = CONCAT('clock rollback detected for ranj node ', @in_node_id, ' (', CAST(@rollback_us AS NVARCHAR(40)), ' us)');
+            ROLLBACK TRANSACTION;
             THROW 50021, @soft_msg, 1;
         END
         ELSE
         BEGIN
             DECLARE @hard_msg NVARCHAR(200) = CONCAT('hard clock rollback detected for ranj node ', @in_node_id, ' (', CAST(@rollback_us AS NVARCHAR(40)), ' us)');
+            ROLLBACK TRANSACTION;
             THROW 50023, @hard_msg, 1;
         END
     END
@@ -93,11 +101,9 @@ BEGIN
             ' remain in microsecond ', CAST(@current_tick AS NVARCHAR(40)),
             ' for ranj node ', @in_node_id
         );
+        ROLLBACK TRANSACTION;
         THROW 50205, @cap_msg, 1;
     END
-
-    -- Temp table for results
-    CREATE TABLE #ranj_ids (id BINARY(16));
 
     -- Constants for NUMERIC(38,0) power-of-2 arithmetic
     DECLARE @two NUMERIC(38,0) = 2;
@@ -169,6 +175,8 @@ BEGIN
         last_sequence = @last_emitted_seq,
         updated_at = SYSUTCDATETIME()
     WHERE node_id = @in_node_id;
+
+    COMMIT TRANSACTION;
 
     -- Return results
     SELECT id FROM #ranj_ids;

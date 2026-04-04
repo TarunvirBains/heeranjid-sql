@@ -29,8 +29,10 @@ BEGIN
     IF @epoch_ms IS NULL
         THROW 50102, 'heer_config row id=1 must exist before generating IDs', 1;
 
-    -- Current time relative to epoch
-    DECLARE @now_ms BIGINT = DATEDIFF_BIG(MILLISECOND, '1970-01-01T00:00:00', SYSUTCDATETIME()) - @epoch_ms;
+    -- Temp table for results (created outside transaction)
+    CREATE TABLE #heer_ids (id BIGINT);
+
+    BEGIN TRANSACTION;
 
     -- Ensure state row exists
     IF NOT EXISTS (SELECT 1 FROM heer_node_state WHERE node_id = @in_node_id)
@@ -45,6 +47,10 @@ BEGIN
     FROM heer_node_state WITH (UPDLOCK, ROWLOCK, HOLDLOCK)
     WHERE node_id = @in_node_id;
 
+    -- Calculate current time AFTER acquiring the lock to avoid false clock rollback
+    -- under concurrency (another thread may have advanced last_id_time while we waited)
+    DECLARE @now_ms BIGINT = DATEDIFF_BIG(MILLISECOND, '1970-01-01T00:00:00', SYSUTCDATETIME()) - @epoch_ms;
+
     -- Clock rollback detection
     DECLARE @rollback_ms BIGINT = @last_time - @now_ms;
     IF @rollback_ms > 0
@@ -52,11 +58,13 @@ BEGIN
         IF @rollback_ms < 50
         BEGIN
             DECLARE @soft_msg NVARCHAR(200) = CONCAT('clock rollback detected for node ', @in_node_id, ' (', @rollback_ms, ' ms)');
+            ROLLBACK TRANSACTION;
             THROW 50020, @soft_msg, 1;
         END
         ELSE
         BEGIN
             DECLARE @hard_msg NVARCHAR(200) = CONCAT('hard clock rollback detected for node ', @in_node_id, ' (', @rollback_ms, ' ms)');
+            ROLLBACK TRANSACTION;
             THROW 50022, @hard_msg, 1;
         END
     END
@@ -75,11 +83,9 @@ BEGIN
             ' remain in millisecond ', @current_tick,
             ' for node ', @in_node_id
         );
+        ROLLBACK TRANSACTION;
         THROW 50103, @cap_msg, 1;
     END
-
-    -- Temp table for results
-    CREATE TABLE #heer_ids (id BIGINT);
 
     DECLARE @remaining INT = @requested_count;
     DECLARE @emit_count INT;
@@ -118,6 +124,8 @@ BEGIN
         last_sequence = @last_emitted_sequence,
         updated_at = SYSUTCDATETIME()
     WHERE node_id = @in_node_id;
+
+    COMMIT TRANSACTION;
 
     -- Return results
     SELECT id FROM #heer_ids;
