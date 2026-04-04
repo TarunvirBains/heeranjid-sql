@@ -91,8 +91,8 @@ BEGIN
         available_this_tick := 65536 - next_seq;
         emit_count := LEAST(remaining, available_this_tick);
 
-        ts_high := (current_tick >> 42)::BIGINT & ((1::BIGINT << 48) - 1);
-        ts_mid  := (current_tick >> 30)::BIGINT & ((1::BIGINT << 12) - 1);
+        ts_high := (current_tick::BIGINT >> 42) & ((1::BIGINT << 48) - 1);
+        ts_mid  := (current_tick::BIGINT >> 30) & ((1::BIGINT << 12) - 1);
         ts_low  := current_tick::BIGINT & ((1::BIGINT << 30) - 1);
 
         hi := (ts_high << 16)
