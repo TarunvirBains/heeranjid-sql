@@ -145,7 +145,7 @@ RETURNS TABLE(id UUID)
 LANGUAGE sql
 AS $$
     SELECT id
-    FROM generate_ranjids(current_heer_node_id(), requested_count, allow_spanning);
+    FROM generate_ranjids(current_heer_ranj_node_id(), requested_count, allow_spanning);
 $$;
 
 CREATE OR REPLACE FUNCTION generate_ranjids(requested_count INTEGER)
@@ -153,7 +153,7 @@ RETURNS TABLE(id UUID)
 LANGUAGE sql
 AS $$
     SELECT id
-    FROM generate_ranjids(current_heer_node_id(), requested_count, true);
+    FROM generate_ranjids(current_heer_ranj_node_id(), requested_count, true);
 $$;
 
 CREATE OR REPLACE FUNCTION generate_ranjid(in_node_id INTEGER)
@@ -169,5 +169,5 @@ RETURNS UUID
 LANGUAGE sql
 AS $$
     SELECT id
-    FROM generate_ranjids(current_heer_node_id(), 1, true);
+    FROM generate_ranjids(current_heer_ranj_node_id(), 1, true);
 $$;
