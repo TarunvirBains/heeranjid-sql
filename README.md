@@ -177,12 +177,69 @@ generate_ids(
 - may span multiple milliseconds when needed
 - should keep locks only for the read and write window
 
+### RanjId Generation API
+
+```sql
+generate_ranjid() RETURNS UUID;
+generate_ranjid(node_id INTEGER) RETURNS UUID;
+```
+
+For bulk allocation:
+
+```sql
+generate_ranjids(count INTEGER) RETURNS TABLE(id UUID);
+
+generate_ranjids(
+    count INTEGER,
+    allow_spanning BOOLEAN DEFAULT true
+) RETURNS TABLE(id UUID);
+
+generate_ranjids(
+    node_id INTEGER,
+    count INTEGER,
+    allow_spanning BOOLEAN DEFAULT true
+) RETURNS TABLE(id UUID);
+```
+
+### RanjId Bulk Behavior
+
+- returns exactly `count` UUIDs
+- strictly increasing within a batch (UUIDv7 byte ordering)
+- fully concurrency-safe
+- uses a read-once, compute, write-once state update
+- performs exactly one update to `heer_ranj_node_state` for the full batch
+- may span multiple microseconds when needed
+- clock rollback detection threshold is 50,000 microseconds (50ms)
+
 ## Column Defaults
 
 The SQL layer is intended to support native database defaults such as:
 
 ```sql
 id BIGINT PRIMARY KEY DEFAULT generate_id();
+```
+
+For RanjId:
+
+```sql
+id UUID PRIMARY KEY DEFAULT generate_ranjid();
+```
+
+## File Structure
+
+```
+postgres/
+├── schema.sql                      -- table definitions
+├── seed.sql                        -- default single-node seed data
+├── install.sql                     -- psql install entrypoint
+├── functions/
+│   ├── session.sql                 -- set/get session node
+│   ├── generate_heerid.sql         -- HeerId generation
+│   └── generate_ranjid.sql         -- RanjId generation
+└── queries/
+    ├── fetch_node.sql              -- node lookup
+    ├── fetch_epoch.sql             -- epoch lookup
+    └── fetch_active_node.sql       -- active node lookup
 ```
 
 ## Guarantees
