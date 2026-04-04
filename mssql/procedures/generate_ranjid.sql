@@ -72,9 +72,11 @@ BEGIN
             DECLARE @soft_msg NVARCHAR(200) = CONCAT('clock rollback detected for ranj node ', @in_node_id, ' (', CAST(@rollback_us AS NVARCHAR(40)), ' us)');
             THROW 50021, @soft_msg, 1;
         END
-
-        DECLARE @hard_msg NVARCHAR(200) = CONCAT('hard clock rollback detected for ranj node ', @in_node_id, ' (', CAST(@rollback_us AS NVARCHAR(40)), ' us)');
-        THROW 50021, @hard_msg, 1;
+        ELSE
+        BEGIN
+            DECLARE @hard_msg NVARCHAR(200) = CONCAT('hard clock rollback detected for ranj node ', @in_node_id, ' (', CAST(@rollback_us AS NVARCHAR(40)), ' us)');
+            THROW 50023, @hard_msg, 1;
+        END
     END
 
     -- Determine starting tick and sequence
