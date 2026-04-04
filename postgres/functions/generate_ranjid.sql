@@ -91,13 +91,13 @@ BEGIN
         available_this_tick := 65536 - next_seq;
         emit_count := LEAST(remaining, available_this_tick);
 
-        -- Cast NUMERIC to BIGINT for bit operations. This limits the
-        -- effective timestamp range to ~292,000 years from epoch, which is
-        -- far beyond any practical deployment. For the full 90-bit range,
-        -- NUMERIC division/modulo would be needed instead of bit shifts.
-        ts_high := (current_tick::BIGINT >> 42) & ((1::BIGINT << 48) - 1);
-        ts_mid  := (current_tick::BIGINT >> 30) & ((1::BIGINT << 12) - 1);
-        ts_low  := current_tick::BIGINT & ((1::BIGINT << 30) - 1);
+        -- Decompose the 90-bit NUMERIC timestamp using division/modulo
+        -- so we never truncate at BIGINT's 2^63 limit. Each component
+        -- fits safely in a BIGINT after extraction.
+        -- Full range: 2^90 nanoseconds ≈ 39.24 billion years.
+        ts_high := (floor(current_tick / (2::NUMERIC ^ 42)) % (2::NUMERIC ^ 48))::BIGINT;
+        ts_mid  := (floor(current_tick / (2::NUMERIC ^ 30)) % (2::NUMERIC ^ 12))::BIGINT;
+        ts_low  := (current_tick % (2::NUMERIC ^ 30))::BIGINT;
 
         hi := (ts_high << 16)
             | (7::BIGINT << 12)
