@@ -25,7 +25,8 @@ COMMENT ON TABLE heer_node_state IS
 'Internal state for HeerId generator (one row per node). Do not modify manually.';
 
 CREATE TABLE IF NOT EXISTS heer_ranj_node_state (
-    node_id         INTEGER PRIMARY KEY REFERENCES heer_nodes(node_id),
+    node_id         INTEGER PRIMARY KEY
+                    REFERENCES heer_nodes(node_id) ON DELETE CASCADE,
     last_id_time    NUMERIC(30,0) NOT NULL DEFAULT 0,
     last_sequence   INTEGER NOT NULL DEFAULT 0,
     updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
