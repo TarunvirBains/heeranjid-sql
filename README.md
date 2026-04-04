@@ -74,6 +74,7 @@ with version and variant bits reserved for UUID semantics.
 - RanjId uses a 96-bit physical microsecond timestamp with 90 effective payload bits
 - the epoch is not hardcoded by this SQL repository
 - the active epoch is stored in `heer_config`
+- the 90-bit effective range covers ~39.24 billion years at nanosecond precision
 
 ### Node ID
 
@@ -110,13 +111,53 @@ The core tables are:
 `is_active`.
 
 `heer_config` contains exactly one logical configuration row and defines the
-epoch used for timestamp encoding.
+epoch used for timestamp encoding. The `ranj_epoch_offset` column extends the
+RanjId epoch beyond the range of `TIMESTAMP` — see **Extended Epochs** below.
 
 `heer_node_state` stores the last generated millisecond and sequence for each
 node.
 
 `heer_ranj_node_state` stores the last generated microsecond timestamp and
 sequence for each node.
+
+## Extended Epochs (RanjId)
+
+PostgreSQL `TIMESTAMP` only covers ~4713 BC to ~294276 AD. For epochs
+beyond that range — such as the Big Bang (~13.787 billion years ago) — use
+the `ranj_epoch_offset` column in `heer_config`.
+
+The offset is added to the RanjId timestamp after subtracting the `epoch`
+TIMESTAMP. The unit matches whatever precision the deployment uses
+(microseconds by default).
+
+```
+current_tick = (now - epoch) + ranj_epoch_offset
+```
+
+When `ranj_epoch_offset` is 0 (the default), the behavior is identical to
+using `epoch` alone.
+
+### Example: Big Bang epoch at microsecond precision
+
+```sql
+INSERT INTO heer_config (id, epoch, ranj_epoch_offset)
+VALUES (
+    1,
+    TIMESTAMP '1970-01-01 00:00:00',
+    FLOOR(13.787e9 * 365.25 * 86400 * 1e6)::NUMERIC(30,0)
+);
+```
+
+This produces timestamps encoding microseconds since the Big Bang. The
+resulting values (~4.35 × 10²³) far exceed BIGINT range but fit comfortably
+in the 90-bit RanjId timestamp field (max ~1.24 × 10²⁷).
+
+### Range at different precisions
+
+| Precision | Max Range (2⁹⁰) | Big Bang to now |
+| :--- | :--- | :--- |
+| Microseconds (default) | ~39.24 trillion years | ~13.8 billion years ✓ |
+| Nanoseconds | ~39.24 billion years | ~13.8 billion years ✓ |
 
 ## Node Identity
 

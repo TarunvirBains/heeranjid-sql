@@ -8,6 +8,7 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
     epoch_us NUMERIC(30,0);
+    epoch_offset NUMERIC(30,0);
     now_us NUMERIC(30,0);
     last_time NUMERIC(30,0);
     last_seq INTEGER;
@@ -40,8 +41,9 @@ BEGIN
         RAISE EXCEPTION 'node_id % is not registered as an active Heer node', in_node_id;
     END IF;
 
-    SELECT FLOOR(EXTRACT(EPOCH FROM c.epoch) * 1000000)::NUMERIC(30,0)
-    INTO epoch_us
+    SELECT FLOOR(EXTRACT(EPOCH FROM c.epoch) * 1000000)::NUMERIC(30,0),
+           c.ranj_epoch_offset
+    INTO epoch_us, epoch_offset
     FROM heer_config AS c
     WHERE c.id = 1;
 
@@ -49,7 +51,12 @@ BEGIN
         RAISE EXCEPTION 'heer_config row id=1 must exist before generating IDs';
     END IF;
 
-    now_us := FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::NUMERIC(30,0) - epoch_us;
+    -- current_tick = (now - epoch_timestamp) + ranj_epoch_offset
+    -- The offset extends the epoch beyond TIMESTAMP range (e.g. Big Bang).
+    -- When offset is 0 (default), this reduces to simple (now - epoch).
+    now_us := FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::NUMERIC(30,0)
+              - epoch_us
+              + epoch_offset;
 
     INSERT INTO heer_ranj_node_state (node_id)
     VALUES (in_node_id)
