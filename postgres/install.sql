@@ -2,3 +2,4 @@
 \i postgres/functions/session.sql
 \i postgres/functions/generate_heerid.sql
 \i postgres/functions/generate_ranjid.sql
+\i postgres/functions/configure.sql

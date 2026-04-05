@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS heer_nodes (
 CREATE TABLE IF NOT EXISTS heer_config (
     id                  INTEGER PRIMARY KEY CHECK (id = 1),
     epoch               TIMESTAMP NOT NULL,
+    precision           VARCHAR(2) NOT NULL DEFAULT 'ns',
     ranj_epoch_offset   NUMERIC(30,0) NOT NULL DEFAULT 0,
     updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
