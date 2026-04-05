@@ -109,7 +109,7 @@ BEGIN
         ts_low  := (current_tick % (2::NUMERIC ^ 30))::BIGINT;
 
         hi := (ts_high << 16)
-            | (7::BIGINT << 12)
+            | (8::BIGINT << 12)
             | ts_mid;
 
         RETURN QUERY

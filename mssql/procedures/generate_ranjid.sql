@@ -139,9 +139,9 @@ BEGIN
         SET @ts_mid  = CAST(FLOOR(@current_tick / @pow2_30) % @pow2_12 AS BIGINT);
         SET @ts_low  = CAST(@current_tick % @pow2_30 AS BIGINT);
 
-        -- Upper 8 bytes: ts_high(48) | version=7(4) | ts_mid(12)
+        -- Upper 8 bytes: ts_high(48) | version=8(4) | ts_mid(12)
         SET @hi = (@ts_high * POWER(CAST(2 AS BIGINT), 16))
-                | (CAST(7 AS BIGINT) * POWER(CAST(2 AS BIGINT), 12))
+                | (CAST(8 AS BIGINT) * POWER(CAST(2 AS BIGINT), 12))
                 | @ts_mid;
 
         -- Pre-compute the fixed portion of the lower 8 bytes (everything except sequence)
