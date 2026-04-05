@@ -2,10 +2,10 @@
 -- Safe to run multiple times (uses IF NOT EXISTS).
 
 IF NOT EXISTS (SELECT 1 FROM heer_config WHERE id = 1)
-    INSERT INTO heer_config (id, epoch)
-    VALUES (1, '2026-01-01T00:00:00');
+    INSERT INTO heer_config (id, epoch, precision)
+    VALUES (1, '2026-01-01T00:00:00', 'ns');
 ELSE
-    UPDATE heer_config SET epoch = '2026-01-01T00:00:00' WHERE id = 1;
+    UPDATE heer_config SET epoch = '2026-01-01T00:00:00', precision = 'ns' WHERE id = 1;
 GO
 
 IF NOT EXISTS (SELECT 1 FROM heer_nodes WHERE node_id = 1)

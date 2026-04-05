@@ -5,3 +5,4 @@
 :r procedures\session.sql
 :r procedures\generate_heerid.sql
 :r procedures\generate_ranjid.sql
+:r procedures\configure.sql
