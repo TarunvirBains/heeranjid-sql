@@ -35,8 +35,6 @@ BEGIN
         RAISE EXCEPTION 'heer_config row id=1 must exist before generating IDs';
     END IF;
 
-    now_ms := FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT - epoch_ms;
-
     INSERT INTO heer_node_state (node_id)
     VALUES (in_node_id)
     ON CONFLICT (node_id) DO NOTHING;
@@ -46,6 +44,10 @@ BEGIN
     FROM heer_node_state AS s
     WHERE s.node_id = in_node_id
     FOR UPDATE;
+
+    -- Calculate current time AFTER acquiring the lock to avoid false clock rollback
+    -- under concurrency (another thread may have advanced last_id_time while we waited)
+    now_ms := FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT - epoch_ms;
 
     rollback_ms := last_time - now_ms;
     IF rollback_ms > 0 THEN

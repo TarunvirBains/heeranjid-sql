@@ -51,13 +51,6 @@ BEGIN
         RAISE EXCEPTION 'heer_config row id=1 must exist before generating IDs';
     END IF;
 
-    -- current_tick = (now - epoch_timestamp) + ranj_epoch_offset
-    -- The offset extends the epoch beyond TIMESTAMP range (e.g. Big Bang).
-    -- When offset is 0 (default), this reduces to simple (now - epoch).
-    now_us := FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::NUMERIC(30,0)
-              - epoch_us
-              + epoch_offset;
-
     INSERT INTO heer_ranj_node_state (node_id)
     VALUES (in_node_id)
     ON CONFLICT (node_id) DO NOTHING;
@@ -67,6 +60,15 @@ BEGIN
     FROM heer_ranj_node_state AS s
     WHERE s.node_id = in_node_id
     FOR UPDATE;
+
+    -- Calculate current time AFTER acquiring the lock to avoid false clock rollback
+    -- under concurrency (another thread may have advanced last_id_time while we waited)
+    -- current_tick = (now - epoch_timestamp) + ranj_epoch_offset
+    -- The offset extends the epoch beyond TIMESTAMP range (e.g. Big Bang).
+    -- When offset is 0 (default), this reduces to simple (now - epoch).
+    now_us := FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::NUMERIC(30,0)
+              - epoch_us
+              + epoch_offset;
 
     rollback_us := last_time - now_us;
     IF rollback_us > 0 THEN
