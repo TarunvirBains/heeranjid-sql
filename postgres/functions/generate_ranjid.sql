@@ -26,13 +26,14 @@ DECLARE
     ts_low BIGINT;
     hi BIGINT;
     lo BIGINT;
+    precision_bits INTEGER := 1; -- nanoseconds (default)
 BEGIN
     IF requested_count IS NULL OR requested_count <= 0 THEN
         RAISE EXCEPTION 'requested_count must be greater than zero';
     END IF;
 
-    IF in_node_id IS NULL OR in_node_id < 0 OR in_node_id > 65535 THEN
-        RAISE EXCEPTION 'node_id % is out of range for RanjId (0..65535)', in_node_id;
+    IF in_node_id IS NULL OR in_node_id < 0 OR in_node_id > 32767 THEN
+        RAISE EXCEPTION 'node_id % is out of range for RanjId (0..32767)', in_node_id;
     END IF;
 
     IF NOT EXISTS (
@@ -100,13 +101,13 @@ BEGIN
         available_this_tick := 65536 - next_seq;
         emit_count := LEAST(remaining, available_this_tick);
 
-        -- Decompose the 90-bit NUMERIC timestamp using division/modulo
+        -- Decompose the 89-bit NUMERIC timestamp using division/modulo
         -- so we never truncate at BIGINT's 2^63 limit. Each component
         -- fits safely in a BIGINT after extraction.
-        -- Full range: 2^90 nanoseconds ≈ 39.24 billion years.
-        ts_high := (floor(current_tick / (2::NUMERIC ^ 42)) % (2::NUMERIC ^ 48))::BIGINT;
-        ts_mid  := (floor(current_tick / (2::NUMERIC ^ 30)) % (2::NUMERIC ^ 12))::BIGINT;
-        ts_low  := (current_tick % (2::NUMERIC ^ 30))::BIGINT;
+        -- Full range: 2^89 nanoseconds ≈ 19.62 billion years.
+        ts_high := (floor(current_tick / (2::NUMERIC ^ 41)) % (2::NUMERIC ^ 48))::BIGINT;
+        ts_mid  := (floor(current_tick / (2::NUMERIC ^ 29)) % (2::NUMERIC ^ 12))::BIGINT;
+        ts_low  := (current_tick % (2::NUMERIC ^ 29))::BIGINT;
 
         hi := (ts_high << 16)
             | (8::BIGINT << 12)
@@ -117,7 +118,8 @@ BEGIN
             lpad(to_hex(hi), 16, '0')
             || lpad(to_hex(
                 ((-9223372036854775808)::BIGINT  -- 0x8000000000000000 (sets variant bit 1)
-                | (ts_low << 32)
+                | (precision_bits::BIGINT << 60)
+                | (ts_low << 31)
                 | (in_node_id::BIGINT << 16)
                 | seq.s::BIGINT)
             ), 16, '0')

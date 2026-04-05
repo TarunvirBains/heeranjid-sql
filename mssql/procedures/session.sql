@@ -35,7 +35,7 @@ BEGIN
     IF @node_id IS NULL
         THROW 50010, 'node_id cannot be null', 1;
 
-    IF @node_id < 0 OR @node_id > 65535
+    IF @node_id < 0 OR @node_id > 32767
     BEGIN
         DECLARE @ranj_range_msg NVARCHAR(200) = CONCAT('node_id ', @node_id, ' is out of range for RanjId');
         THROW 50011, @ranj_range_msg, 1;

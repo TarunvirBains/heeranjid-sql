@@ -58,7 +58,7 @@ BEGIN
         RAISE EXCEPTION 'node_id cannot be null';
     END IF;
 
-    IF node_id < 0 OR node_id > 65535 THEN
+    IF node_id < 0 OR node_id > 32767 THEN
         RAISE EXCEPTION 'node_id % is out of range for RanjId', node_id;
     END IF;
 

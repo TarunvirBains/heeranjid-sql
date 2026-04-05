@@ -18,9 +18,9 @@ BEGIN
     END
 
     -- Validate node
-    IF @in_node_id < 0 OR @in_node_id > 65535
+    IF @in_node_id < 0 OR @in_node_id > 32767
     BEGIN
-        DECLARE @range_msg NVARCHAR(200) = CONCAT('node_id ', @in_node_id, ' is out of range for RanjId (0..65535)');
+        DECLARE @range_msg NVARCHAR(200) = CONCAT('node_id ', @in_node_id, ' is out of range for RanjId (0..32767)');
         THROW 50202, @range_msg, 1;
     END
 
@@ -115,10 +115,11 @@ BEGIN
     DECLARE @seq INT;
 
     -- Pre-compute powers used in the loop
-    DECLARE @pow2_42 NUMERIC(38,0) = POWER(@two, 42);
+    DECLARE @pow2_41 NUMERIC(38,0) = POWER(@two, 41);
     DECLARE @pow2_48 NUMERIC(38,0) = POWER(@two, 48);
-    DECLARE @pow2_30 NUMERIC(38,0) = POWER(@two, 30);
+    DECLARE @pow2_29 NUMERIC(38,0) = POWER(@two, 29);
     DECLARE @pow2_12 NUMERIC(38,0) = POWER(@two, 12);
+    DECLARE @precision_bits BIGINT = 1; -- nanoseconds (default)
 
     -- Variables used inside the loop (declared once, assigned per iteration)
     DECLARE @ts_high BIGINT;
@@ -134,10 +135,10 @@ BEGIN
         SET @available_this_tick = 65536 - @next_seq;
         SET @emit_count = CASE WHEN @remaining < @available_this_tick THEN @remaining ELSE @available_this_tick END;
 
-        -- Decompose 90-bit timestamp using NUMERIC(38,0) arithmetic
-        SET @ts_high = CAST(FLOOR(@current_tick / @pow2_42) % @pow2_48 AS BIGINT);
-        SET @ts_mid  = CAST(FLOOR(@current_tick / @pow2_30) % @pow2_12 AS BIGINT);
-        SET @ts_low  = CAST(@current_tick % @pow2_30 AS BIGINT);
+        -- Decompose 89-bit timestamp using NUMERIC(38,0) arithmetic
+        SET @ts_high = CAST(FLOOR(@current_tick / @pow2_41) % @pow2_48 AS BIGINT);
+        SET @ts_mid  = CAST(FLOOR(@current_tick / @pow2_29) % @pow2_12 AS BIGINT);
+        SET @ts_low  = CAST(@current_tick % @pow2_29 AS BIGINT);
 
         -- Upper 8 bytes: ts_high(48) | version=8(4) | ts_mid(12)
         SET @hi = (@ts_high * POWER(CAST(2 AS BIGINT), 16))
@@ -146,7 +147,8 @@ BEGIN
 
         -- Pre-compute the fixed portion of the lower 8 bytes (everything except sequence)
         SET @lo_base = CAST(0x8000000000000000 AS BIGINT)  -- variant bits 10
-                     | (@ts_low * POWER(CAST(2 AS BIGINT), 32))
+                     | (@precision_bits * POWER(CAST(2 AS BIGINT), 60))
+                     | (@ts_low * POWER(CAST(2 AS BIGINT), 31))
                      | (CAST(@in_node_id AS BIGINT) * POWER(CAST(2 AS BIGINT), 16));
 
         SET @hi_bytes = CAST(@hi AS BINARY(8));
