@@ -13,7 +13,7 @@ IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'heer_config')
 CREATE TABLE heer_config (
     id                  INT PRIMARY KEY CHECK (id = 1),
     epoch               DATETIME2 NOT NULL,
-    precision           VARCHAR(2) NOT NULL DEFAULT 'ns',
+    [precision]         VARCHAR(2) NOT NULL DEFAULT 'ns',
     ranj_epoch_offset   NUMERIC(38,0) NOT NULL DEFAULT 0,
     updated_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );

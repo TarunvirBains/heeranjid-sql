@@ -11,7 +11,7 @@ BEGIN
     DECLARE @cfg_offset NUMERIC(38,0);
 
     SELECT @cfg_epoch = epoch,
-           @cfg_precision = precision,
+           @cfg_precision = [precision],
            @cfg_offset = ranj_epoch_offset
     FROM heer_config
     WHERE id = 1;
@@ -89,18 +89,20 @@ BEGIN
         THROW 50303, 'RanjId epoch_ticks is negative; epoch is invalid', 1;
 
     -- ----------------------------------------------------------------
-    -- 3. Begin transaction for all DDL + state reset + smoke test
+    -- 3. Execute DDL + state reset + smoke test
+    -- NOTE: No outer transaction wrapper. The inner generate_ids/generate_ranjids
+    -- procedures use their own BEGIN TRANSACTION/COMMIT, and MSSQL doesn't
+    -- support true nested transactions. DDL is atomic per statement.
     -- ----------------------------------------------------------------
     DECLARE @sql NVARCHAR(MAX);
-
-    BEGIN TRANSACTION;
 
     BEGIN TRY
 
     -- ----------------------------------------------------------------
     -- 4. Regenerate generate_ids (HeerId) with baked-in epoch
     -- ----------------------------------------------------------------
-    SET @sql = N'
+    SET @sql = CAST(N'' AS NVARCHAR(MAX));
+    SET @sql = @sql + N'
 CREATE OR ALTER PROCEDURE generate_ids
     @in_node_id      INT = NULL,
     @requested_count INT,
@@ -261,7 +263,8 @@ END';
     ELSE IF @cfg_precision = 'fs'
         SET @now_ticks_expr = N'CAST(DATEDIFF_BIG(NANOSECOND, ''1970-01-01T00:00:00'', SYSUTCDATETIME()) AS NUMERIC(38,0)) * 1000000';
 
-    SET @sql = N'
+    SET @sql = CAST(N'' AS NVARCHAR(MAX));
+    SET @sql = @sql + N'
 CREATE OR ALTER PROCEDURE generate_ranjids
     @in_node_id      INT = NULL,
     @requested_count INT,
@@ -491,26 +494,16 @@ END';
     SELECT @rid = id FROM @smoke_ranjid;
 
     IF @hid IS NULL
-    BEGIN
-        ROLLBACK TRANSACTION;
         THROW 50310, 'Smoke test failed: generate_id returned NULL', 1;
-    END
 
     IF @rid IS NULL
-    BEGIN
-        ROLLBACK TRANSACTION;
         THROW 50311, 'Smoke test failed: generate_ranjid returned NULL', 1;
-    END
-
-    COMMIT TRANSACTION;
 
     PRINT CONCAT('heer_configure succeeded. smoke HeerId=', @hid,
                  ', smoke RanjId=0x', CONVERT(NVARCHAR(40), @rid, 2));
 
     END TRY
     BEGIN CATCH
-        IF @@TRANCOUNT > 0
-            ROLLBACK TRANSACTION;
         THROW;
     END CATCH
 END
