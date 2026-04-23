@@ -73,10 +73,16 @@ BEGIN
 
     rollback_us := last_time - now_us;
     IF rollback_us > 0 THEN
-        IF rollback_us < 50000 THEN
-            RAISE EXCEPTION 'clock rollback detected for ranj node % (% us)', in_node_id, rollback_us;
+        IF rollback_us < 2000 THEN
+            RAISE EXCEPTION 'logical future drift for ranj node % (% us) — likely batch-induced, check batch sizing', in_node_id, rollback_us
+                USING ERRCODE = '50021';
+        ELSIF rollback_us < 50000 THEN
+            RAISE EXCEPTION 'clock rollback detected for ranj node % (% us)', in_node_id, rollback_us
+                USING ERRCODE = '50020';
+        ELSE
+            RAISE EXCEPTION 'hard clock rollback detected for ranj node % (% us)', in_node_id, rollback_us
+                USING ERRCODE = '50022';
         END IF;
-        RAISE EXCEPTION 'hard clock rollback detected for ranj node % (% us)', in_node_id, rollback_us;
     END IF;
 
     current_tick := GREATEST(now_us, last_time);

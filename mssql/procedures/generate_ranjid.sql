@@ -69,21 +69,27 @@ BEGIN
                                     - @epoch_us
                                     + @epoch_offset;
 
-    -- Clock rollback detection (50000 microsecond threshold)
+    -- Clock rollback detection (thresholds: 2000 us = drift, 50000 us = soft, >= 50000 = hard)
     DECLARE @rollback_us NUMERIC(38,0) = @last_time - @now_us;
     IF @rollback_us > 0
     BEGIN
-        IF @rollback_us < 50000
+        IF @rollback_us < 2000
+        BEGIN
+            DECLARE @drift_msg NVARCHAR(200) = CONCAT('logical future drift for ranj node ', @in_node_id, ' (', CAST(@rollback_us AS NVARCHAR(40)), ' us) — likely batch-induced, check batch sizing');
+            ROLLBACK TRANSACTION;
+            THROW 50021, @drift_msg, 1;
+        END
+        ELSE IF @rollback_us < 50000
         BEGIN
             DECLARE @soft_msg NVARCHAR(200) = CONCAT('clock rollback detected for ranj node ', @in_node_id, ' (', CAST(@rollback_us AS NVARCHAR(40)), ' us)');
             ROLLBACK TRANSACTION;
-            THROW 50021, @soft_msg, 1;
+            THROW 50020, @soft_msg, 1;
         END
         ELSE
         BEGIN
             DECLARE @hard_msg NVARCHAR(200) = CONCAT('hard clock rollback detected for ranj node ', @in_node_id, ' (', CAST(@rollback_us AS NVARCHAR(40)), ' us)');
             ROLLBACK TRANSACTION;
-            THROW 50023, @hard_msg, 1;
+            THROW 50022, @hard_msg, 1;
         END
     END
 

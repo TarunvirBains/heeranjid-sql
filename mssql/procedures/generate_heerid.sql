@@ -55,7 +55,13 @@ BEGIN
     DECLARE @rollback_ms BIGINT = @last_time - @now_ms;
     IF @rollback_ms > 0
     BEGIN
-        IF @rollback_ms < 50
+        IF @rollback_ms < 2
+        BEGIN
+            DECLARE @drift_msg NVARCHAR(200) = CONCAT('logical future drift for node ', @in_node_id, ' (', @rollback_ms, ' ms) — likely batch-induced, check batch sizing');
+            ROLLBACK TRANSACTION;
+            THROW 50021, @drift_msg, 1;
+        END
+        ELSE IF @rollback_ms < 50
         BEGIN
             DECLARE @soft_msg NVARCHAR(200) = CONCAT('clock rollback detected for node ', @in_node_id, ' (', @rollback_ms, ' ms)');
             ROLLBACK TRANSACTION;

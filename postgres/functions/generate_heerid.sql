@@ -51,11 +51,16 @@ BEGIN
 
     rollback_ms := last_time - now_ms;
     IF rollback_ms > 0 THEN
-        IF rollback_ms < 50 THEN
-            RAISE EXCEPTION 'clock rollback detected for node % (% ms)', in_node_id, rollback_ms;
+        IF rollback_ms < 2 THEN
+            RAISE EXCEPTION 'logical future drift for node % (% ms) — likely batch-induced, check batch sizing', in_node_id, rollback_ms
+                USING ERRCODE = '50021';
+        ELSIF rollback_ms < 50 THEN
+            RAISE EXCEPTION 'clock rollback detected for node % (% ms)', in_node_id, rollback_ms
+                USING ERRCODE = '50020';
+        ELSE
+            RAISE EXCEPTION 'hard clock rollback detected for node % (% ms)', in_node_id, rollback_ms
+                USING ERRCODE = '50022';
         END IF;
-
-        RAISE EXCEPTION 'hard clock rollback detected for node % (% ms)', in_node_id, rollback_ms;
     END IF;
 
     current_tick := GREATEST(now_ms, last_time);
