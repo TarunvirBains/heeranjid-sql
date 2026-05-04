@@ -58,7 +58,7 @@ with version and variant bits reserved for UUID semantics.
 
 | Bit Range | Length | Content | Note |
 | :--- | :--- | :--- | :--- |
-| 0 - 47 | 48 bits | Timestamp (High) | Part 1 of 96-bit microsecond timestamp |
+| 0 - 47 | 48 bits | Timestamp (High) | Part 1 of 89-bit timestamp |
 | 48 - 51 | 4 bits | Version (`1000`) | UUIDv8 marker |
 | 52 - 63 | 12 bits | Timestamp (Mid) | Part 2 of timestamp |
 | 64 - 65 | 2 bits | Variant (`10`) | RFC 4122 marker |
@@ -127,8 +127,8 @@ beyond that range — such as the Big Bang (~13.787 billion years ago) — use
 the `ranj_epoch_offset` column in `heer_config`.
 
 The offset is added to the RanjId timestamp after subtracting the `epoch`
-TIMESTAMP. The unit matches whatever precision the deployment uses
-(microseconds by default).
+TIMESTAMP. The unit is always **microseconds**, regardless of the configured
+precision.
 
 ```
 current_tick = (now - epoch) + ranj_epoch_offset
