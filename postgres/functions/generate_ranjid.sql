@@ -1,3 +1,8 @@
+DO $install$
+DECLARE
+    _sch text := COALESCE(current_schema(), 'public');
+BEGIN
+    EXECUTE format($sql$
 CREATE OR REPLACE FUNCTION generate_ranjids(
     in_node_id INTEGER,
     requested_count INTEGER,
@@ -5,7 +10,8 @@ CREATE OR REPLACE FUNCTION generate_ranjids(
 )
 RETURNS TABLE(id UUID)
 LANGUAGE plpgsql
-AS $$
+SET search_path = %I, pg_catalog
+AS $func$
 DECLARE
     epoch_us NUMERIC(30,0);
     epoch_offset NUMERIC(30,0);
@@ -33,13 +39,13 @@ BEGIN
     END IF;
 
     IF in_node_id IS NULL OR in_node_id < 0 OR in_node_id > 32767 THEN
-        RAISE EXCEPTION 'node_id % is out of range for RanjId (0..32767)', in_node_id;
+        RAISE EXCEPTION 'node_id %% is out of range for RanjId (0..32767)', in_node_id;
     END IF;
 
     IF NOT EXISTS (
         SELECT 1 FROM heer_nodes WHERE node_id = in_node_id AND is_active = true
     ) THEN
-        RAISE EXCEPTION 'node_id % is not registered as an active Heer node', in_node_id;
+        RAISE EXCEPTION 'node_id %% is not registered as an active Heer node', in_node_id;
     END IF;
 
     SELECT FLOOR(EXTRACT(EPOCH FROM c.epoch) * 1000000)::NUMERIC(30,0),
@@ -74,13 +80,13 @@ BEGIN
     rollback_us := last_time - now_us;
     IF rollback_us > 0 THEN
         IF rollback_us < 2000 THEN
-            RAISE EXCEPTION 'logical future drift for ranj node % (% us) — likely batch-induced, check batch sizing', in_node_id, rollback_us
+            RAISE EXCEPTION 'logical future drift for ranj node %% (%% us) — likely batch-induced, check batch sizing', in_node_id, rollback_us
                 USING ERRCODE = '50021';
         ELSIF rollback_us < 50000 THEN
-            RAISE EXCEPTION 'clock rollback detected for ranj node % (% us)', in_node_id, rollback_us
+            RAISE EXCEPTION 'clock rollback detected for ranj node %% (%% us)', in_node_id, rollback_us
                 USING ERRCODE = '50020';
         ELSE
-            RAISE EXCEPTION 'hard clock rollback detected for ranj node % (% us)', in_node_id, rollback_us
+            RAISE EXCEPTION 'hard clock rollback detected for ranj node %% (%% us)', in_node_id, rollback_us
                 USING ERRCODE = '50022';
         END IF;
     END IF;
@@ -94,7 +100,7 @@ BEGIN
     available_this_tick := 65536 - next_seq;
     IF NOT allow_spanning AND requested_count > available_this_tick THEN
         RAISE EXCEPTION
-            'requested % IDs but only % remain in microsecond % for ranj node %',
+            'requested %% IDs but only %% remain in microsecond %% for ranj node %%',
             requested_count,
             available_this_tick,
             current_tick,
@@ -108,7 +114,7 @@ BEGIN
         emit_count := LEAST(remaining, available_this_tick);
 
         IF current_tick > (2::NUMERIC ^ 89) - 1 THEN
-            RAISE EXCEPTION 'RanjId timestamp % exceeds 89-bit range (2^89 - 1)', current_tick
+            RAISE EXCEPTION 'RanjId timestamp %% exceeds 89-bit range (2^89 - 1)', current_tick
                 USING ERRCODE = '50030';
         END IF;
 
@@ -116,9 +122,9 @@ BEGIN
         -- so we never truncate at BIGINT's 2^63 limit. Each component
         -- fits safely in a BIGINT after extraction.
         -- Full range: 2^89 microseconds ≈ 19.62 trillion years.
-        ts_high := (floor(current_tick / (2::NUMERIC ^ 41)) % (2::NUMERIC ^ 48))::BIGINT;
-        ts_mid  := (floor(current_tick / (2::NUMERIC ^ 29)) % (2::NUMERIC ^ 12))::BIGINT;
-        ts_low  := (current_tick % (2::NUMERIC ^ 29))::BIGINT;
+        ts_high := (floor(current_tick / (2::NUMERIC ^ 41)) %% (2::NUMERIC ^ 48))::BIGINT;
+        ts_mid  := (floor(current_tick / (2::NUMERIC ^ 29)) %% (2::NUMERIC ^ 12))::BIGINT;
+        ts_low  := (current_tick %% (2::NUMERIC ^ 29))::BIGINT;
 
         hi := (ts_high << 16)
             | (8::BIGINT << 12)
@@ -150,7 +156,10 @@ BEGIN
         updated_at = CURRENT_TIMESTAMP
     WHERE node_id = in_node_id;
 END;
-$$;
+$func$;
+$sql$, _sch);
+END;
+$install$;
 
 CREATE OR REPLACE FUNCTION generate_ranjids(
     requested_count INTEGER,

@@ -1,7 +1,13 @@
+DO $install$
+DECLARE
+    _sch text := COALESCE(current_schema(), 'public');
+BEGIN
+    EXECUTE format($sql$
 CREATE OR REPLACE FUNCTION set_heer_node_id(node_id INTEGER)
 RETURNS void
 LANGUAGE plpgsql
-AS $$
+SET search_path = %I, pg_catalog
+AS $func$
 DECLARE
     validated_node_id INTEGER;
 BEGIN
@@ -10,7 +16,7 @@ BEGIN
     END IF;
 
     IF node_id < 0 OR node_id > 511 THEN
-        RAISE EXCEPTION 'node_id % is out of range for HeerId', node_id;
+        RAISE EXCEPTION 'node_id %% is out of range for HeerId', node_id;
     END IF;
 
     SELECT n.node_id
@@ -20,17 +26,26 @@ BEGIN
       AND n.is_active = true;
 
     IF validated_node_id IS NULL THEN
-        RAISE EXCEPTION 'node_id % is not registered as an active Heer node', node_id;
+        RAISE EXCEPTION 'node_id %% is not registered as an active Heer node', node_id;
     END IF;
 
     PERFORM set_config('heer.node_id', node_id::text, false);
 END;
-$$;
+$func$;
+$sql$, _sch);
+END;
+$install$;
 
+DO $install$
+DECLARE
+    _sch text := COALESCE(current_schema(), 'public');
+BEGIN
+    EXECUTE format($sql$
 CREATE OR REPLACE FUNCTION current_heer_node_id()
 RETURNS INTEGER
 LANGUAGE plpgsql
-AS $$
+SET search_path = %I, pg_catalog
+AS $func$
 DECLARE
     configured_node_id TEXT;
     parsed_node_id INTEGER;
@@ -45,12 +60,21 @@ BEGIN
     PERFORM set_heer_node_id(parsed_node_id);
     RETURN parsed_node_id;
 END;
-$$;
+$func$;
+$sql$, _sch);
+END;
+$install$;
 
+DO $install$
+DECLARE
+    _sch text := COALESCE(current_schema(), 'public');
+BEGIN
+    EXECUTE format($sql$
 CREATE OR REPLACE FUNCTION set_heer_ranj_node_id(node_id INTEGER)
 RETURNS void
 LANGUAGE plpgsql
-AS $$
+SET search_path = %I, pg_catalog
+AS $func$
 DECLARE
     validated_node_id INTEGER;
 BEGIN
@@ -59,7 +83,7 @@ BEGIN
     END IF;
 
     IF node_id < 0 OR node_id > 32767 THEN
-        RAISE EXCEPTION 'node_id % is out of range for RanjId', node_id;
+        RAISE EXCEPTION 'node_id %% is out of range for RanjId', node_id;
     END IF;
 
     SELECT n.node_id
@@ -69,17 +93,26 @@ BEGIN
       AND n.is_active = true;
 
     IF validated_node_id IS NULL THEN
-        RAISE EXCEPTION 'node_id % is not registered as an active Heer node', node_id;
+        RAISE EXCEPTION 'node_id %% is not registered as an active Heer node', node_id;
     END IF;
 
     PERFORM set_config('heer.ranj_node_id', node_id::text, false);
 END;
-$$;
+$func$;
+$sql$, _sch);
+END;
+$install$;
 
+DO $install$
+DECLARE
+    _sch text := COALESCE(current_schema(), 'public');
+BEGIN
+    EXECUTE format($sql$
 CREATE OR REPLACE FUNCTION current_heer_ranj_node_id()
 RETURNS INTEGER
 LANGUAGE plpgsql
-AS $$
+SET search_path = %I, pg_catalog
+AS $func$
 DECLARE
     configured_node_id TEXT;
     parsed_node_id INTEGER;
@@ -94,4 +127,7 @@ BEGIN
     PERFORM set_heer_ranj_node_id(parsed_node_id);
     RETURN parsed_node_id;
 END;
-$$;
+$func$;
+$sql$, _sch);
+END;
+$install$;

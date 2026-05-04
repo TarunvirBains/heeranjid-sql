@@ -1,12 +1,19 @@
 DROP FUNCTION IF EXISTS heer_configure();
 
+DO $install$
+DECLARE
+    _sch text := COALESCE(current_schema(), 'public');
+BEGIN
+    EXECUTE format($sql$
 CREATE OR REPLACE FUNCTION heer_configure(
     force_reset_state BOOLEAN DEFAULT false
 )
 RETURNS VOID
 LANGUAGE plpgsql
-AS $$
+SET search_path = %I, pg_catalog
+AS $func$
 DECLARE
+    _sch             text := COALESCE(current_schema(), 'public');
     cfg_epoch        TIMESTAMP;
     cfg_precision    VARCHAR(2);
     cfg_offset       NUMERIC(30,0);
@@ -42,11 +49,11 @@ BEGIN
     END IF;
 
     IF cfg_epoch > clock_timestamp() THEN
-        RAISE EXCEPTION 'heer_config.epoch (%) is in the future', cfg_epoch;
+        RAISE EXCEPTION 'heer_config.epoch (%%) is in the future', cfg_epoch;
     END IF;
 
     IF cfg_precision NOT IN ('us', 'ns', 'ps', 'fs') THEN
-        RAISE EXCEPTION 'heer_config.precision must be one of us, ns, ps, fs; got "%"', cfg_precision;
+        RAISE EXCEPTION 'heer_config.precision must be one of us, ns, ps, fs; got "%%"', cfg_precision;
     END IF;
 
     -- Compute epoch in milliseconds for HeerId
@@ -66,7 +73,7 @@ BEGIN
     -- Verify epoch fits in 41 bits for HeerId (max ~69 years from epoch)
     max_ts_41 := (2::BIGINT ^ 41) - 1;
     IF epoch_ms < 0 THEN
-        RAISE EXCEPTION 'HeerId epoch_ms is negative (%); epoch too far in the past for BIGINT arithmetic', epoch_ms;
+        RAISE EXCEPTION 'HeerId epoch_ms is negative (%%); epoch too far in the past for BIGINT arithmetic', epoch_ms;
     END IF;
 
     -- Verify epoch fits in 89 bits for RanjId
@@ -94,10 +101,11 @@ CREATE OR REPLACE FUNCTION generate_ids(
 )
 RETURNS TABLE(id BIGINT)
 LANGUAGE plpgsql
-AS $func$
+SET search_path = %%2$I, pg_catalog
+AS $generated$
 DECLARE
     -- Epoch baked in by heer_configure()
-    epoch_ms CONSTANT BIGINT := %s;
+    epoch_ms CONSTANT BIGINT := %%1$s;
     now_ms BIGINT;
     last_time BIGINT;
     last_sequence INTEGER;
@@ -115,13 +123,13 @@ BEGIN
     END IF;
 
     IF in_node_id IS NULL OR in_node_id < 0 OR in_node_id > 511 THEN
-        RAISE EXCEPTION 'node_id %% is out of range for HeerId (0..511)', in_node_id;
+        RAISE EXCEPTION 'node_id %%%% is out of range for HeerId (0..511)', in_node_id;
     END IF;
 
     IF NOT EXISTS (
         SELECT 1 FROM heer_nodes WHERE node_id = in_node_id AND is_active = true
     ) THEN
-        RAISE EXCEPTION 'node_id %% is not registered as an active Heer node', in_node_id;
+        RAISE EXCEPTION 'node_id %%%% is not registered as an active Heer node', in_node_id;
     END IF;
 
     INSERT INTO heer_node_state (node_id)
@@ -141,13 +149,13 @@ BEGIN
     rollback_ms := last_time - now_ms;
     IF rollback_ms > 0 THEN
         IF rollback_ms < 2 THEN
-            RAISE EXCEPTION 'logical future drift for node %% (%% ms) — likely batch-induced, check batch sizing', in_node_id, rollback_ms
+            RAISE EXCEPTION 'logical future drift for node %%%% (%%%% ms) — likely batch-induced, check batch sizing', in_node_id, rollback_ms
                 USING ERRCODE = '50021';
         ELSIF rollback_ms < 50 THEN
-            RAISE EXCEPTION 'clock rollback detected for node %% (%% ms)', in_node_id, rollback_ms
+            RAISE EXCEPTION 'clock rollback detected for node %%%% (%%%% ms)', in_node_id, rollback_ms
                 USING ERRCODE = '50020';
         ELSE
-            RAISE EXCEPTION 'hard clock rollback detected for node %% (%% ms)', in_node_id, rollback_ms
+            RAISE EXCEPTION 'hard clock rollback detected for node %%%% (%%%% ms)', in_node_id, rollback_ms
                 USING ERRCODE = '50022';
         END IF;
     END IF;
@@ -161,7 +169,7 @@ BEGIN
     available_this_tick := 8192 - next_sequence;
     IF NOT allow_spanning AND requested_count > available_this_tick THEN
         RAISE EXCEPTION
-            'requested %% IDs but only %% remain in millisecond %% for node %%',
+            'requested %%%% IDs but only %%%% remain in millisecond %%%% for node %%%%',
             requested_count,
             available_this_tick,
             current_tick,
@@ -196,8 +204,8 @@ BEGIN
         updated_at = CURRENT_TIMESTAMP
     WHERE node_id = in_node_id;
 END;
-$func$
-    $fmt$, epoch_ms);
+$generated$
+    $fmt$, epoch_ms, _sch);
 
     -- ----------------------------------------------------------------
     -- 4. Regenerate RanjId function
@@ -210,16 +218,17 @@ CREATE OR REPLACE FUNCTION generate_ranjids(
 )
 RETURNS TABLE(id UUID)
 LANGUAGE plpgsql
-AS $func$
+SET search_path = %%8$I, pg_catalog
+AS $generated$
 DECLARE
     -- Epoch and precision baked in by heer_configure()
-    epoch_ticks CONSTANT NUMERIC(30,0) := %s;
+    epoch_ticks CONSTANT NUMERIC(30,0) := %%1$s;
     -- epoch_offset is in microseconds; converted to ticks below
-    epoch_offset_us CONSTANT NUMERIC(30,0) := %s;
-    precision_bits CONSTANT INTEGER := %s;
+    epoch_offset_us CONSTANT NUMERIC(30,0) := %%2$s;
+    precision_bits CONSTANT INTEGER := %%3$s;
     -- Rollback thresholds baked in (scaled from microseconds to ticks)
-    logical_threshold CONSTANT NUMERIC(30,0) := %s;
-    rollback_threshold CONSTANT NUMERIC(30,0) := %s;
+    logical_threshold CONSTANT NUMERIC(30,0) := %%4$s;
+    rollback_threshold CONSTANT NUMERIC(30,0) := %%5$s;
     now_ticks NUMERIC(30,0);
     last_time NUMERIC(30,0);
     last_seq INTEGER;
@@ -243,13 +252,13 @@ BEGIN
     END IF;
 
     IF in_node_id IS NULL OR in_node_id < 0 OR in_node_id > 32767 THEN
-        RAISE EXCEPTION 'node_id %% is out of range for RanjId (0..32767)', in_node_id;
+        RAISE EXCEPTION 'node_id %%%% is out of range for RanjId (0..32767)', in_node_id;
     END IF;
 
     IF NOT EXISTS (
         SELECT 1 FROM heer_nodes WHERE node_id = in_node_id AND is_active = true
     ) THEN
-        RAISE EXCEPTION 'node_id %% is not registered as an active Heer node', in_node_id;
+        RAISE EXCEPTION 'node_id %%%% is not registered as an active Heer node', in_node_id;
     END IF;
 
     INSERT INTO heer_ranj_node_state (node_id)
@@ -266,20 +275,20 @@ BEGIN
     -- under concurrency (another thread may have advanced last_id_time while we waited)
     -- epoch_offset is stored in microseconds; convert to ticks: ticks = us * multiplier / 1000000
     -- current_tick = (now - epoch_ticks) + FLOOR(epoch_offset_us * multiplier / 1000000)
-    now_ticks := FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * %s)::NUMERIC(30,0)
+    now_ticks := FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * %%6$s)::NUMERIC(30,0)
                  - epoch_ticks
-                 + FLOOR(epoch_offset_us * %s / 1000000)::NUMERIC(30,0);
+                 + FLOOR(epoch_offset_us * %%7$s / 1000000)::NUMERIC(30,0);
 
     rollback_ticks := last_time - now_ticks;
     IF rollback_ticks > 0 THEN
         IF rollback_ticks < logical_threshold THEN
-            RAISE EXCEPTION 'logical future drift for ranj node %% (%% ticks)', in_node_id, rollback_ticks
+            RAISE EXCEPTION 'logical future drift for ranj node %%%% (%%%% ticks)', in_node_id, rollback_ticks
                 USING ERRCODE = '50021';
         ELSIF rollback_ticks < rollback_threshold THEN
-            RAISE EXCEPTION 'clock rollback detected for ranj node %% (%% ticks)', in_node_id, rollback_ticks
+            RAISE EXCEPTION 'clock rollback detected for ranj node %%%% (%%%% ticks)', in_node_id, rollback_ticks
                 USING ERRCODE = '50020';
         ELSE
-            RAISE EXCEPTION 'hard clock rollback detected for ranj node %% (%% ticks)', in_node_id, rollback_ticks
+            RAISE EXCEPTION 'hard clock rollback detected for ranj node %%%% (%%%% ticks)', in_node_id, rollback_ticks
                 USING ERRCODE = '50022';
         END IF;
     END IF;
@@ -293,7 +302,7 @@ BEGIN
     available_this_tick := 65536 - next_seq;
     IF NOT allow_spanning AND requested_count > available_this_tick THEN
         RAISE EXCEPTION
-            'requested %% IDs but only %% remain in tick %% for ranj node %%',
+            'requested %%%% IDs but only %%%% remain in tick %%%% for ranj node %%%%',
             requested_count,
             available_this_tick,
             current_tick,
@@ -307,15 +316,15 @@ BEGIN
         emit_count := LEAST(remaining, available_this_tick);
 
         IF current_tick > (2::NUMERIC ^ 89) - 1 THEN
-            RAISE EXCEPTION 'RanjId timestamp %% exceeds 89-bit range (2^89 - 1)', current_tick
+            RAISE EXCEPTION 'RanjId timestamp %%%% exceeds 89-bit range (2^89 - 1)', current_tick
                 USING ERRCODE = '50030';
         END IF;
 
         -- Decompose the 89-bit NUMERIC timestamp using division/modulo
         -- so we never truncate at BIGINT 2^63 limit.
-        ts_high := (floor(current_tick / (2::NUMERIC ^ 41)) %% (2::NUMERIC ^ 48))::BIGINT;
-        ts_mid  := (floor(current_tick / (2::NUMERIC ^ 29)) %% (2::NUMERIC ^ 12))::BIGINT;
-        ts_low  := (current_tick %% (2::NUMERIC ^ 29))::BIGINT;
+        ts_high := (floor(current_tick / (2::NUMERIC ^ 41)) %%%% (2::NUMERIC ^ 48))::BIGINT;
+        ts_mid  := (floor(current_tick / (2::NUMERIC ^ 29)) %%%% (2::NUMERIC ^ 12))::BIGINT;
+        ts_low  := (current_tick %%%% (2::NUMERIC ^ 29))::BIGINT;
 
         hi := (ts_high << 16)
             | (8::BIGINT << 12)
@@ -353,10 +362,10 @@ BEGIN
         updated_at = CURRENT_TIMESTAMP
     WHERE node_id = in_node_id;
 END;
-$func$
+$generated$
     $fmt$, epoch_ticks, cfg_offset, precision_bits,
            logical_threshold::TEXT, rollback_threshold::TEXT,
-           multiplier::TEXT, multiplier::TEXT);
+           multiplier::TEXT, multiplier::TEXT, _sch);
 
     -- ----------------------------------------------------------------
     -- 5. Conditionally reset node state
@@ -375,9 +384,12 @@ $func$
     smoke_heerid := generate_id(1);
     smoke_ranjid := generate_ranjid(1);
 
-    RAISE NOTICE 'heer_configure() succeeded. smoke HeerId=%, smoke RanjId=%', smoke_heerid, smoke_ranjid;
+    RAISE NOTICE 'heer_configure() succeeded. smoke HeerId=%%, smoke RanjId=%%', smoke_heerid, smoke_ranjid;
 END;
-$$;
+$func$;
+$sql$, _sch);
+END;
+$install$;
 
 -- Only superusers / explicit GRANT can run this
 REVOKE EXECUTE ON FUNCTION heer_configure(BOOLEAN) FROM PUBLIC;

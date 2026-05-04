@@ -1,3 +1,8 @@
+DO $install$
+DECLARE
+    _sch text := COALESCE(current_schema(), 'public');
+BEGIN
+    EXECUTE format($sql$
 CREATE OR REPLACE FUNCTION generate_ids(
     in_node_id INTEGER,
     requested_count INTEGER,
@@ -5,7 +10,8 @@ CREATE OR REPLACE FUNCTION generate_ids(
 )
 RETURNS TABLE(id BIGINT)
 LANGUAGE plpgsql
-AS $$
+SET search_path = %I, pg_catalog
+AS $func$
 DECLARE
     epoch_ms BIGINT;
     now_ms BIGINT;
@@ -52,13 +58,13 @@ BEGIN
     rollback_ms := last_time - now_ms;
     IF rollback_ms > 0 THEN
         IF rollback_ms < 2 THEN
-            RAISE EXCEPTION 'logical future drift for node % (% ms) — likely batch-induced, check batch sizing', in_node_id, rollback_ms
+            RAISE EXCEPTION 'logical future drift for node %% (%% ms) — likely batch-induced, check batch sizing', in_node_id, rollback_ms
                 USING ERRCODE = '50021';
         ELSIF rollback_ms < 50 THEN
-            RAISE EXCEPTION 'clock rollback detected for node % (% ms)', in_node_id, rollback_ms
+            RAISE EXCEPTION 'clock rollback detected for node %% (%% ms)', in_node_id, rollback_ms
                 USING ERRCODE = '50020';
         ELSE
-            RAISE EXCEPTION 'hard clock rollback detected for node % (% ms)', in_node_id, rollback_ms
+            RAISE EXCEPTION 'hard clock rollback detected for node %% (%% ms)', in_node_id, rollback_ms
                 USING ERRCODE = '50022';
         END IF;
     END IF;
@@ -72,7 +78,7 @@ BEGIN
     available_this_tick := 8192 - next_sequence;
     IF NOT allow_spanning AND requested_count > available_this_tick THEN
         RAISE EXCEPTION
-            'requested % IDs but only % remain in millisecond % for node %',
+            'requested %% IDs but only %% remain in millisecond %% for node %%',
             requested_count,
             available_this_tick,
             current_tick,
@@ -107,7 +113,10 @@ BEGIN
         updated_at = CURRENT_TIMESTAMP
     WHERE node_id = in_node_id;
 END;
-$$;
+$func$;
+$sql$, _sch);
+END;
+$install$;
 
 CREATE OR REPLACE FUNCTION generate_ids(
     requested_count INTEGER,
