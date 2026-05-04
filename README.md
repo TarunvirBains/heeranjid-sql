@@ -52,18 +52,18 @@ HeerId is a signed 64-bit integer with 63 usable bits.
 
 ### RanjId
 
-RanjId is a 128-bit identifier structured for UUIDv7 RFC 4122 compliance.
-Its effective payload is `90-bit timestamp + 16-bit node_id + 16-bit sequence`
+RanjId is a 128-bit identifier structured for UUIDv8 RFC 9562 compliance.
+Its effective payload is `90-bit timestamp + 15-bit node_id + 16-bit sequence`
 with version and variant bits reserved for UUID semantics.
 
 | Bit Range | Length | Content | Note |
 | :--- | :--- | :--- | :--- |
 | 0 - 47 | 48 bits | Timestamp (High) | Part 1 of 96-bit microsecond timestamp |
-| 48 - 51 | 4 bits | Version (`0111`) | UUIDv7 marker |
+| 48 - 51 | 4 bits | Version (`1000`) | UUIDv8 marker |
 | 52 - 63 | 12 bits | Timestamp (Mid) | Part 2 of timestamp |
 | 64 - 65 | 2 bits | Variant (`10`) | RFC 4122 marker |
 | 66 - 95 | 30 bits | Timestamp (Low) | Part 3 of timestamp |
-| 96 - 111 | 16 bits | Node ID | Supports 65,536 nodes |
+| 96 - 110 | 15 bits | Node ID | Supports 32,768 nodes |
 | 112 - 127 | 16 bits | Sequence | Supports 65,536 IDs per microsecond |
 
 ## Field Definitions
@@ -245,7 +245,7 @@ generate_ranjids(
 ### RanjId Bulk Behavior
 
 - returns exactly `count` UUIDs
-- strictly increasing within a batch (UUIDv7 byte ordering)
+- strictly increasing within a batch (UUIDv8 byte ordering)
 - fully concurrency-safe
 - uses a read-once, compute, write-once state update
 - performs exactly one update to `heer_ranj_node_state` for the full batch
@@ -291,7 +291,7 @@ postgres/
 - HeerId is K-sortable by node
 - RanjId provides microsecond precision
 - RanjId is strictly sortable by Time -> Node -> Sequence
-- RanjId provides deterministic uniqueness across 65,536 nodes
+- RanjId provides deterministic uniqueness across 32,768 nodes
 - both identifiers are database-native and sortable in stored form
 
 ### Not Provided
@@ -368,6 +368,6 @@ The important scaling rule is simple:
 | PostgreSQL Type | `BIGINT` | `UUID` |
 | Precision | Millisecond | Microsecond |
 | Timestamp Bits | 41 bits | 96 bits (90 effective) |
-| Node ID Bits | 9 bits (512) | 16 bits (65,536) |
+| Node ID Bits | 9 bits (512) | 15 bits (32,768) |
 | Sequence Bits | 13 bits (8,192/ms) | 16 bits (65,536 per microsecond) |
 | Max Lifespan | ~69 years | ~2.5 trillion years |
