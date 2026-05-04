@@ -5,7 +5,6 @@ CREATE OR REPLACE FUNCTION generate_ranjids(
 )
 RETURNS TABLE(id UUID)
 LANGUAGE plpgsql
-SET search_path = pg_catalog, public
 AS $$
 DECLARE
     epoch_us NUMERIC(30,0);
@@ -27,7 +26,7 @@ DECLARE
     ts_low BIGINT;
     hi BIGINT;
     lo BIGINT;
-    precision_bits INTEGER := 1; -- nanoseconds (default)
+    precision_bits INTEGER := 0; -- microseconds (default)
 BEGIN
     IF requested_count IS NULL OR requested_count <= 0 THEN
         RAISE EXCEPTION 'requested_count must be greater than zero';
@@ -108,10 +107,15 @@ BEGIN
         available_this_tick := 65536 - next_seq;
         emit_count := LEAST(remaining, available_this_tick);
 
+        IF current_tick > (2::NUMERIC ^ 89) - 1 THEN
+            RAISE EXCEPTION 'RanjId timestamp % exceeds 89-bit range (2^89 - 1)', current_tick
+                USING ERRCODE = '50030';
+        END IF;
+
         -- Decompose the 89-bit NUMERIC timestamp using division/modulo
         -- so we never truncate at BIGINT's 2^63 limit. Each component
         -- fits safely in a BIGINT after extraction.
-        -- Full range: 2^89 nanoseconds ≈ 19.62 billion years.
+        -- Full range: 2^89 microseconds ≈ 19.62 trillion years.
         ts_high := (floor(current_tick / (2::NUMERIC ^ 41)) % (2::NUMERIC ^ 48))::BIGINT;
         ts_mid  := (floor(current_tick / (2::NUMERIC ^ 29)) % (2::NUMERIC ^ 12))::BIGINT;
         ts_low  := (current_tick % (2::NUMERIC ^ 29))::BIGINT;
