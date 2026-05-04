@@ -5,7 +5,6 @@ CREATE OR REPLACE FUNCTION heer_configure(
 )
 RETURNS VOID
 LANGUAGE plpgsql
-SET search_path = pg_catalog, public
 AS $$
 DECLARE
     cfg_epoch        TIMESTAMP;

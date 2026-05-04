@@ -5,7 +5,6 @@ CREATE OR REPLACE FUNCTION generate_ids(
 )
 RETURNS TABLE(id BIGINT)
 LANGUAGE plpgsql
-SET search_path = pg_catalog, public
 AS $$
 DECLARE
     epoch_ms BIGINT;
