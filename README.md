@@ -53,7 +53,7 @@ HeerId is a signed 64-bit integer with 63 usable bits.
 ### RanjId
 
 RanjId is a 128-bit identifier structured for UUIDv7 RFC 4122 compliance.
-Its effective payload is `90-bit timestamp + 16-bit node_id + 16-bit sequence`
+Its effective payload is `89-bit timestamp + 16-bit node_id + 16-bit sequence`
 with version and variant bits reserved for UUID semantics.
 
 | Bit Range | Length | Content | Note |
@@ -62,19 +62,19 @@ with version and variant bits reserved for UUID semantics.
 | 48 - 51 | 4 bits | Version (`0111`) | UUIDv7 marker |
 | 52 - 63 | 12 bits | Timestamp (Mid) | Part 2 of timestamp |
 | 64 - 65 | 2 bits | Variant (`10`) | RFC 4122 marker |
-| 66 - 95 | 30 bits | Timestamp (Low) | Part 3 of timestamp |
-| 96 - 111 | 16 bits | Node ID | Supports 65,536 nodes |
-| 112 - 127 | 16 bits | Sequence | Supports 65,536 IDs per microsecond |
+| 66 - 94 | 29 bits | Timestamp (Low) | Part 3 of timestamp |
+| 95 - 110 | 16 bits | Node ID | Supports 65,536 nodes |
+| 111 - 126 | 16 bits | Sequence | Supports 65,536 IDs per microsecond |
 
 ## Field Definitions
 
 ### Timestamp
 
 - HeerId uses a 41-bit millisecond timestamp
-- RanjId uses a 96-bit physical microsecond timestamp with 90 effective payload bits
+- RanjId uses a 96-bit physical microsecond timestamp with 89 effective payload bits
 - the epoch is not hardcoded by this SQL repository
 - the active epoch is stored in `heer_config`
-- the 90-bit effective range covers ~39.24 billion years at nanosecond precision
+- the 89-bit effective range covers ~19.62 trillion years at microsecond precision
 
 ### Node ID
 
@@ -150,14 +150,14 @@ VALUES (
 
 This produces timestamps encoding microseconds since the Big Bang. The
 resulting values (~4.35 × 10²³) far exceed BIGINT range but fit comfortably
-in the 90-bit RanjId timestamp field (max ~1.24 × 10²⁷).
+in the 89-bit RanjId timestamp field (max ~6.19 × 10²⁶).
 
 ### Range at different precisions
 
-| Precision | Max Range (2⁹⁰) | Big Bang to now |
+| Precision | Max Range (2⁸⁹) | Big Bang to now |
 | :--- | :--- | :--- |
-| Microseconds (default) | ~39.24 trillion years | ~13.8 billion years ✓ |
-| Nanoseconds | ~39.24 billion years | ~13.8 billion years ✓ |
+| Microseconds (default) | ~19.62 trillion years | ~13.8 billion years ✓ |
+| Nanoseconds | ~19.62 billion years | ~13.8 billion years ✓ |
 
 ## Node Identity
 
@@ -367,7 +367,7 @@ The important scaling rule is simple:
 | Bit Width | 64-bit | 128-bit |
 | PostgreSQL Type | `BIGINT` | `UUID` |
 | Precision | Millisecond | Microsecond |
-| Timestamp Bits | 41 bits | 96 bits (90 effective) |
+| Timestamp Bits | 41 bits | 96 bits (89 effective) |
 | Node ID Bits | 9 bits (512) | 16 bits (65,536) |
 | Sequence Bits | 13 bits (8,192/ms) | 16 bits (65,536 per microsecond) |
 | Max Lifespan | ~69 years | ~2.5 trillion years |
