@@ -1,4 +1,5 @@
 CREATE OR ALTER PROCEDURE heer_configure
+    @force_reset_state BIT = 0
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -88,6 +89,14 @@ BEGIN
     IF @epoch_ticks < 0
         THROW 50303, 'RanjId epoch_ticks is negative; epoch is invalid', 1;
 
+    -- Scale rollback thresholds from microseconds to ticks in the configured precision:
+    --   logical_threshold  = 2000 us  (likely batch-induced drift)
+    --   rollback_threshold = 50000 us (hard clock rollback boundary)
+    -- ticks = us * multiplier / 1000000
+    DECLARE @multiplier_num NUMERIC(38,0) = CAST(@multiplier AS NUMERIC(38,0));
+    DECLARE @logical_threshold NUMERIC(38,0) = FLOOR(2000 * @multiplier_num / 1000000);
+    DECLARE @rollback_threshold NUMERIC(38,0) = FLOOR(50000 * @multiplier_num / 1000000);
+
     -- ----------------------------------------------------------------
     -- 3. Execute DDL + state reset + smoke test
     -- NOTE: No outer transaction wrapper. The inner generate_ids/generate_ranjids
@@ -152,7 +161,13 @@ BEGIN
     DECLARE @rollback_ms BIGINT = @last_time - @now_ms;
     IF @rollback_ms > 0
     BEGIN
-        IF @rollback_ms < 50
+        IF @rollback_ms < 2
+        BEGIN
+            DECLARE @drift_msg NVARCHAR(200) = CONCAT(''logical future drift for node '', @in_node_id, '' ('', @rollback_ms, '' ms) — likely batch-induced, check batch sizing'');
+            ROLLBACK TRANSACTION;
+            THROW 50021, @drift_msg, 1;
+        END
+        ELSE IF @rollback_ms < 50
         BEGIN
             DECLARE @soft_msg NVARCHAR(200) = CONCAT(''clock rollback detected for node '', @in_node_id, '' ('', @rollback_ms, '' ms)'');
             ROLLBACK TRANSACTION;
@@ -301,9 +316,12 @@ BEGIN
     END
 
     -- Epoch and precision baked in by heer_configure
+    -- epoch_offset_us is stored in microseconds; convert to ticks: ticks = us * multiplier / 1000000
     DECLARE @epoch_ticks NUMERIC(38,0) = ' + CAST(@epoch_ticks AS NVARCHAR(40)) + N';
-    DECLARE @epoch_offset NUMERIC(38,0) = ' + CAST(@cfg_offset AS NVARCHAR(40)) + N';
+    DECLARE @epoch_offset_us NUMERIC(38,0) = ' + CAST(@cfg_offset AS NVARCHAR(40)) + N';
     DECLARE @precision_bits INT = ' + CAST(@precision_bits AS NVARCHAR(5)) + N';
+    DECLARE @logical_threshold NUMERIC(38,0) = ' + CAST(@logical_threshold AS NVARCHAR(40)) + N';
+    DECLARE @rollback_threshold NUMERIC(38,0) = ' + CAST(@rollback_threshold AS NVARCHAR(40)) + N';
 
     -- Temp table for results (created outside transaction)
     CREATE TABLE #ranj_ids (id BINARY(16));
@@ -324,25 +342,33 @@ BEGIN
     WHERE node_id = @in_node_id;
 
     -- Calculate current time AFTER acquiring the lock
+    -- epoch_offset_us converted to ticks: ticks = us * multiplier / 1000000
+    DECLARE @epoch_offset_ticks NUMERIC(38,0) = FLOOR(@epoch_offset_us * ' + CAST(@multiplier_num AS NVARCHAR(40)) + N' / 1000000);
     DECLARE @now_ticks NUMERIC(38,0) = ' + @now_ticks_expr + N'
                                     - @epoch_ticks
-                                    + @epoch_offset;
+                                    + @epoch_offset_ticks;
 
-    -- Clock rollback detection (50000 ticks threshold)
+    -- Clock rollback detection (scaled thresholds baked in from microseconds)
     DECLARE @rollback_ticks NUMERIC(38,0) = @last_time - @now_ticks;
     IF @rollback_ticks > 0
     BEGIN
-        IF @rollback_ticks < 50000
+        IF @rollback_ticks < @logical_threshold
+        BEGIN
+            DECLARE @drift_msg NVARCHAR(200) = CONCAT(''logical future drift for ranj node '', @in_node_id, '' ('', CAST(@rollback_ticks AS NVARCHAR(40)), '' ticks) — likely batch-induced, check batch sizing'');
+            ROLLBACK TRANSACTION;
+            THROW 50021, @drift_msg, 1;
+        END
+        ELSE IF @rollback_ticks < @rollback_threshold
         BEGIN
             DECLARE @soft_msg NVARCHAR(200) = CONCAT(''clock rollback detected for ranj node '', @in_node_id, '' ('', CAST(@rollback_ticks AS NVARCHAR(40)), '' ticks)'');
             ROLLBACK TRANSACTION;
-            THROW 50021, @soft_msg, 1;
+            THROW 50020, @soft_msg, 1;
         END
         ELSE
         BEGIN
             DECLARE @hard_msg NVARCHAR(200) = CONCAT(''hard clock rollback detected for ranj node '', @in_node_id, '' ('', CAST(@rollback_ticks AS NVARCHAR(40)), '' ticks)'');
             ROLLBACK TRANSACTION;
-            THROW 50023, @hard_msg, 1;
+            THROW 50022, @hard_msg, 1;
         END
     END
 
@@ -468,13 +494,19 @@ END';
     EXEC sp_executesql @sql;
 
     -- ----------------------------------------------------------------
-    -- 8. Reset node state (precision/epoch change invalidates stored timestamps)
+    -- 8. Conditionally reset node state
+    -- Node state is only reset when @force_reset_state = 1.
+    -- Pass 1 when intentionally changing epoch or precision.
+    -- The default (0) makes re-running heer_configure safe after deploys.
     -- ----------------------------------------------------------------
-    UPDATE heer_node_state
-    SET last_id_time = 0, last_sequence = 0, updated_at = SYSUTCDATETIME();
+    IF @force_reset_state = 1
+    BEGIN
+        UPDATE heer_node_state
+        SET last_id_time = 0, last_sequence = 0, updated_at = SYSUTCDATETIME();
 
-    UPDATE heer_ranj_node_state
-    SET last_id_time = 0, last_sequence = 0, updated_at = SYSUTCDATETIME();
+        UPDATE heer_ranj_node_state
+        SET last_id_time = 0, last_sequence = 0, updated_at = SYSUTCDATETIME();
+    END
 
     -- ----------------------------------------------------------------
     -- 9. Smoke test

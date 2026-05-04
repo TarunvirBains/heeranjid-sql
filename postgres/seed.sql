@@ -3,7 +3,7 @@
 
 INSERT INTO heer_config (id, epoch, precision)
 VALUES (1, '2026-01-01T00:00:00', 'ns')
-ON CONFLICT (id) DO UPDATE SET epoch = EXCLUDED.epoch, precision = EXCLUDED.precision;
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO heer_nodes (node_id, name, description, is_active)
 VALUES (1, 'default', 'Default single-node instance', true)

@@ -1,4 +1,6 @@
-CREATE OR REPLACE FUNCTION heer_configure()
+CREATE OR REPLACE FUNCTION heer_configure(
+    force_reset_state BOOLEAN DEFAULT false
+)
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
@@ -13,6 +15,8 @@ DECLARE
     unit_name        TEXT;
     max_ts_41        BIGINT;
     max_ts_89        NUMERIC(30,0);
+    logical_threshold NUMERIC(30,0);
+    rollback_threshold NUMERIC(30,0);
     smoke_heerid     BIGINT;
     smoke_ranjid     UUID;
 BEGIN
@@ -70,6 +74,13 @@ BEGIN
         RAISE EXCEPTION 'RanjId epoch_ticks is negative; epoch is invalid';
     END IF;
 
+    -- Scale rollback thresholds from microseconds to ticks in the configured precision:
+    --   logical_threshold  = 2000 us  (likely batch-induced drift)
+    --   rollback_threshold = 50000 us (hard clock rollback boundary)
+    -- ticks = us * (multiplier / 1000000)
+    logical_threshold  := FLOOR(2000::NUMERIC  * multiplier / 1000000)::NUMERIC(30,0);
+    rollback_threshold := FLOOR(50000::NUMERIC * multiplier / 1000000)::NUMERIC(30,0);
+
     -- ----------------------------------------------------------------
     -- 3. Regenerate HeerId function
     -- ----------------------------------------------------------------
@@ -119,11 +130,16 @@ BEGIN
 
     rollback_ms := last_time - now_ms;
     IF rollback_ms > 0 THEN
-        IF rollback_ms < 50 THEN
-            RAISE EXCEPTION 'clock rollback detected for node %% (%% ms)', in_node_id, rollback_ms;
+        IF rollback_ms < 2 THEN
+            RAISE EXCEPTION 'logical future drift for node %% (%% ms) — likely batch-induced, check batch sizing', in_node_id, rollback_ms
+                USING ERRCODE = '50021';
+        ELSIF rollback_ms < 50 THEN
+            RAISE EXCEPTION 'clock rollback detected for node %% (%% ms)', in_node_id, rollback_ms
+                USING ERRCODE = '50020';
+        ELSE
+            RAISE EXCEPTION 'hard clock rollback detected for node %% (%% ms)', in_node_id, rollback_ms
+                USING ERRCODE = '50022';
         END IF;
-
-        RAISE EXCEPTION 'hard clock rollback detected for node %% (%% ms)', in_node_id, rollback_ms;
     END IF;
 
     current_tick := GREATEST(now_ms, last_time);
@@ -188,8 +204,12 @@ AS $func$
 DECLARE
     -- Epoch and precision baked in by heer_configure()
     epoch_ticks CONSTANT NUMERIC(30,0) := %s;
-    epoch_offset CONSTANT NUMERIC(30,0) := %s;
+    -- epoch_offset is in microseconds; converted to ticks below
+    epoch_offset_us CONSTANT NUMERIC(30,0) := %s;
     precision_bits CONSTANT INTEGER := %s;
+    -- Rollback thresholds baked in (scaled from microseconds to ticks)
+    logical_threshold CONSTANT NUMERIC(30,0) := %s;
+    rollback_threshold CONSTANT NUMERIC(30,0) := %s;
     now_ticks NUMERIC(30,0);
     last_time NUMERIC(30,0);
     last_seq INTEGER;
@@ -234,17 +254,24 @@ BEGIN
 
     -- Calculate current time AFTER acquiring the lock to avoid false clock rollback
     -- under concurrency (another thread may have advanced last_id_time while we waited)
-    -- current_tick = (now - epoch_ticks) + epoch_offset
+    -- epoch_offset is stored in microseconds; convert to ticks: ticks = us * multiplier / 1000000
+    -- current_tick = (now - epoch_ticks) + FLOOR(epoch_offset_us * multiplier / 1000000)
     now_ticks := FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * %s)::NUMERIC(30,0)
                  - epoch_ticks
-                 + epoch_offset;
+                 + FLOOR(epoch_offset_us * %s / 1000000)::NUMERIC(30,0);
 
     rollback_ticks := last_time - now_ticks;
     IF rollback_ticks > 0 THEN
-        IF rollback_ticks < 50000 THEN
-            RAISE EXCEPTION 'clock rollback detected for ranj node %% (%% ticks)', in_node_id, rollback_ticks;
+        IF rollback_ticks < logical_threshold THEN
+            RAISE EXCEPTION 'logical future drift for ranj node %% (%% ticks)', in_node_id, rollback_ticks
+                USING ERRCODE = '50021';
+        ELSIF rollback_ticks < rollback_threshold THEN
+            RAISE EXCEPTION 'clock rollback detected for ranj node %% (%% ticks)', in_node_id, rollback_ticks
+                USING ERRCODE = '50020';
+        ELSE
+            RAISE EXCEPTION 'hard clock rollback detected for ranj node %% (%% ticks)', in_node_id, rollback_ticks
+                USING ERRCODE = '50022';
         END IF;
-        RAISE EXCEPTION 'hard clock rollback detected for ranj node %% (%% ticks)', in_node_id, rollback_ticks;
     END IF;
 
     current_tick := GREATEST(now_ticks, last_time);
@@ -268,6 +295,11 @@ BEGIN
     WHILE remaining > 0 LOOP
         available_this_tick := 65536 - next_seq;
         emit_count := LEAST(remaining, available_this_tick);
+
+        IF current_tick > (2::NUMERIC ^ 89) - 1 THEN
+            RAISE EXCEPTION 'RanjId timestamp %% exceeds 89-bit range (2^89 - 1)', current_tick
+                USING ERRCODE = '50030';
+        END IF;
 
         -- Decompose the 89-bit NUMERIC timestamp using division/modulo
         -- so we never truncate at BIGINT 2^63 limit.
@@ -312,13 +344,20 @@ BEGIN
     WHERE node_id = in_node_id;
 END;
 $func$
-    $fmt$, epoch_ticks, cfg_offset, precision_bits, multiplier::TEXT);
+    $fmt$, epoch_ticks, cfg_offset, precision_bits,
+           logical_threshold::TEXT, rollback_threshold::TEXT,
+           multiplier::TEXT, multiplier::TEXT);
 
     -- ----------------------------------------------------------------
-    -- 5. Reset node state (precision/epoch change invalidates stored timestamps)
+    -- 5. Conditionally reset node state
+    -- Node state is only reset when force_reset_state = true.
+    -- Pass true when intentionally changing epoch or precision.
+    -- The default (false) makes re-running heer_configure() safe after deploys.
     -- ----------------------------------------------------------------
-    UPDATE heer_node_state      SET last_id_time = 0, last_sequence = 0, updated_at = CURRENT_TIMESTAMP;
-    UPDATE heer_ranj_node_state SET last_id_time = 0, last_sequence = 0, updated_at = CURRENT_TIMESTAMP;
+    IF force_reset_state THEN
+        UPDATE heer_node_state      SET last_id_time = 0, last_sequence = 0, updated_at = CURRENT_TIMESTAMP;
+        UPDATE heer_ranj_node_state SET last_id_time = 0, last_sequence = 0, updated_at = CURRENT_TIMESTAMP;
+    END IF;
 
     -- ----------------------------------------------------------------
     -- 6. Smoke test
@@ -331,4 +370,4 @@ END;
 $$;
 
 -- Only superusers / explicit GRANT can run this
-REVOKE EXECUTE ON FUNCTION heer_configure() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION heer_configure(BOOLEAN) FROM PUBLIC;
