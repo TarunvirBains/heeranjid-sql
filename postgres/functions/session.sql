@@ -1,6 +1,7 @@
 CREATE OR REPLACE FUNCTION set_heer_node_id(node_id INTEGER)
 RETURNS void
 LANGUAGE plpgsql
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     validated_node_id INTEGER;
@@ -30,6 +31,7 @@ $$;
 CREATE OR REPLACE FUNCTION current_heer_node_id()
 RETURNS INTEGER
 LANGUAGE plpgsql
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     configured_node_id TEXT;
@@ -50,6 +52,7 @@ $$;
 CREATE OR REPLACE FUNCTION set_heer_ranj_node_id(node_id INTEGER)
 RETURNS void
 LANGUAGE plpgsql
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     validated_node_id INTEGER;
@@ -79,6 +82,7 @@ $$;
 CREATE OR REPLACE FUNCTION current_heer_ranj_node_id()
 RETURNS INTEGER
 LANGUAGE plpgsql
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     configured_node_id TEXT;

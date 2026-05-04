@@ -354,6 +354,97 @@ The important scaling rule is simple:
 - set the session node explicitly for each connection
 - avoid relying on strict global ordering across nodes
 
+## Deployment Contract
+
+### Schema Model
+
+HeeRanjID installs into the caller's current schema (typically `public`). All
+objects (`heer_nodes`, `heer_config`, `heer_node_state`, `heer_ranj_node_state`,
+and all functions) are created in whichever schema is first in `search_path` at
+install time. There is no dedicated HeeRanjID schema.
+
+### search_path Hardening
+
+All `LANGUAGE plpgsql` functions pin their own search path with:
+
+```sql
+SET search_path = pg_catalog, public
+```
+
+This prevents ambient-object injection attacks: a malicious or accidental same-
+name table or function in a later search_path entry cannot shadow the `heer_*`
+objects that these functions reference. The fix applies to:
+
+- `generate_ids(...)` — HeerId bulk generator
+- `generate_ranjids(...)` — RanjId bulk generator
+- `set_heer_node_id(...)` — session node binding (HeerId)
+- `current_heer_node_id()` — session node read (HeerId)
+- `set_heer_ranj_node_id(...)` — session node binding (RanjId)
+- `current_heer_ranj_node_id()` — session node read (RanjId)
+- `heer_configure(...)` — configuration and smoke-test runner
+
+`LANGUAGE sql` wrapper functions (`generate_id`, `generate_ranjid`, and the
+two-argument `generate_ids`/`generate_ranjids` overloads) delegate immediately
+to their plpgsql counterparts and do not need a separate `SET search_path`.
+
+### Required Grants
+
+After installation, grant the application role access to the generation API:
+
+```sql
+-- HeerId generation
+GRANT EXECUTE ON FUNCTION generate_ids(INTEGER, INTEGER, BOOLEAN) TO app_role;
+GRANT EXECUTE ON FUNCTION generate_ids(INTEGER, BOOLEAN)          TO app_role;
+GRANT EXECUTE ON FUNCTION generate_ids(INTEGER)                   TO app_role;
+GRANT EXECUTE ON FUNCTION generate_id(INTEGER)                    TO app_role;
+GRANT EXECUTE ON FUNCTION generate_id()                           TO app_role;
+
+-- RanjId generation
+GRANT EXECUTE ON FUNCTION generate_ranjids(INTEGER, INTEGER, BOOLEAN) TO app_role;
+GRANT EXECUTE ON FUNCTION generate_ranjids(INTEGER, BOOLEAN)          TO app_role;
+GRANT EXECUTE ON FUNCTION generate_ranjids(INTEGER)                   TO app_role;
+GRANT EXECUTE ON FUNCTION generate_ranjid(INTEGER)                    TO app_role;
+GRANT EXECUTE ON FUNCTION generate_ranjid()                           TO app_role;
+
+-- Session node configuration
+GRANT EXECUTE ON FUNCTION set_heer_node_id(INTEGER)      TO app_role;
+GRANT EXECUTE ON FUNCTION current_heer_node_id()         TO app_role;
+GRANT EXECUTE ON FUNCTION set_heer_ranj_node_id(INTEGER) TO app_role;
+GRANT EXECUTE ON FUNCTION current_heer_ranj_node_id()    TO app_role;
+
+-- Table access required by the generator functions
+GRANT SELECT, INSERT, UPDATE ON TABLE heer_node_state      TO app_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE heer_ranj_node_state TO app_role;
+GRANT SELECT                 ON TABLE heer_nodes           TO app_role;
+GRANT SELECT                 ON TABLE heer_config          TO app_role;
+```
+
+### heer_configure Privilege
+
+`heer_configure()` is restricted to superusers or roles that have received an
+explicit `GRANT EXECUTE`. The install script revokes the default PUBLIC grant:
+
+```sql
+REVOKE EXECUTE ON FUNCTION heer_configure(BOOLEAN) FROM PUBLIC;
+```
+
+Only a database administrator or deploy-time role should call
+`heer_configure()`. Normal application roles must not have access.
+
+### Multi-Schema Environments
+
+If installing into a non-`public` schema (e.g. `heerid`), set `search_path`
+before running the install script and ensure the `SET search_path` clause in
+the functions references that schema instead of `public`. The default clause
+`SET search_path = pg_catalog, public` assumes `public`.
+
+When all `heer_*` objects live in a non-public schema, callers must also
+include that schema in their session `search_path`:
+
+```sql
+SET search_path = pg_catalog, heerid, public;
+```
+
 ## Summary
 
 - simple defaults

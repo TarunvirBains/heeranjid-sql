@@ -5,6 +5,7 @@ CREATE OR REPLACE FUNCTION generate_ranjids(
 )
 RETURNS TABLE(id UUID)
 LANGUAGE plpgsql
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     epoch_us NUMERIC(30,0);
